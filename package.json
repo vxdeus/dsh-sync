@@ -1,0 +1,93 @@
+{
+  "name": "dsh-sync",
+  "version": "0.6.0",
+  "type": "module",
+  "description": "DSH 跨设备同步：自配私有 Git 或 SFTP、在线安全范围恢复、离线恢复及确认后的插件升级。",
+  "main": "lib/panel-host-v020.js",
+  "exports": {
+    ".": "./lib/panel-host-v020.js",
+    "./client": "./lib/client-panel.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/panel-host-v020.js",
+    "lib/panel-api.js",
+    "lib/upload-verification.js",
+    "lib/sftp-store.js",
+    "lib/sftp-progress.js",
+    "lib/snapshot-meta.js",
+    "lib/transfer-control.js",
+    "lib/plugin-archive.js",
+    "lib/plugin-packages.js",
+    "lib/upgrade-guidance.js",
+    "lib/upgrade-guidance.json",
+    "lib/bootstrap-policy.js",
+    "lib/bootstrap-restore.js",
+    "lib/client-panel.js",
+    "lib/pathcodec.js",
+    "lib/restore-safety.js",
+    "lib/live-session.js",
+    "lib/live-restore.js",
+    "lib/sync-guard.js",
+    "lib/restore-offline.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "lib/config.js",
+    "lib/host-module.js",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "sync": {
+      "releaseNotes": "0.6.0 首个通用公开版：插件分发与个人数据分离；不附带个人仓库或服务器信息；首次自行配置私有 Git/SFTP。Git 传输需确认私有仓库。按远端及账号隔离 Git 工作副本，升级后已有远端请先下载核对。已有配置不被安装覆盖。"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": ">=0.1.2-rc.1",
+    "@deepseek-ai/dsh-sandbox": "*"
+  },
+  "dependencies": {
+    "isomorphic-git": "^1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vxdeus/dsh-sync.git"
+  },
+  "homepage": "https://github.com/vxdeus/dsh-sync#readme",
+  "bugs": {
+    "url": "https://github.com/vxdeus/dsh-sync/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "sync",
+    "backup",
+    "sftp"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "verify:public": "node scripts/verify-public.mjs",
+    "verify:package": "node scripts/smoke-package.mjs",
+    "release:pack": "node scripts/release.mjs"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-sandbox": {
+      "optional": true
+    }
+  }
+}

@@ -1,0 +1,44 @@
+# Dependencies and release outputs
+node_modules/
+dist/
+coverage/
+.npm-cache/
+*.tgz
+*.zip
+
+# Local secrets: these never belong in the public repository
+.env
+.env.*
+!.env.example
+.npmrc
+.credentials.yaml
+dsh-sync.json
+dsh-sync-auth.json
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+.ssh/
+
+# DSH state, snapshots, local mappings and transport logs
+.dsh/
+.dsh-sync*/
+sessions/
+attachments/
+storages/
+state/
+extras/
+plugin-packages/
+*.log
+*.stdout
+*.stderr
+*.tmp
+*.bak
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

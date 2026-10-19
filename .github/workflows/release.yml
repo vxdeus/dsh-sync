@@ -1,0 +1,146 @@
+name: GitHub Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing stable version tag, e.g. v0.6.0'
+        required: true
+        type: string
+      confirm:
+        description: 'Type PUBLISH to authorize a public GitHub Release'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    if: github.event_name == 'push' || inputs.confirm == 'PUBLISH'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - name: Resolve explicit stable tag to one commit
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo '::error::A stable vX.Y.Z tag is required'
+            exit 1
+          fi
+          # Fetch the exact tag namespace, not a similarly named branch. Peel
+          # annotated/lightweight tags and reject anything that is not a commit.
+          repository="$RUNNER_TEMP/release-resolve"
+          git init --quiet "$repository"
+          git -C "$repository" fetch --no-tags --depth=1 \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "refs/tags/$RELEASE_TAG"
+          sha=$(git -C "$repository" rev-parse --verify 'FETCH_HEAD^{commit}')
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          printf 'tag=%s\nversion=%s\nsha=%s\n' "$RELEASE_TAG" "${RELEASE_TAG#v}" "$sha" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test without ignored failures
+        run: node scripts/test.mjs
+      - name: Verify package and tag version
+        run: node scripts/release.mjs
+      - name: Load exact package without a real user profile or network
+        run: node scripts/smoke-package.mjs
+      - name: Upload verified package only after all checks pass
+        uses: actions/upload-artifact@v4
+        with:
+          name: tested-package-${{ matrix.os }}-${{ needs.resolve.outputs.sha }}
+          path: |
+            dist/dsh-sync.tgz
+            dist/dsh-sync-${{ needs.resolve.outputs.version }}.tgz
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [resolve, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+      RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+      # Download from this workflow run only; never rebuild in the write-token job.
+      - uses: actions/download-artifact@v4
+        with:
+          name: tested-package-ubuntu-latest-${{ needs.resolve.outputs.sha }}
+          path: ${{ runner.temp }}/release-artifact
+      - name: Verify downloaded release checksums and exact filenames
+        shell: bash
+        working-directory: ${{ runner.temp }}/release-artifact
+        run: |
+          set -euo pipefail
+          for file in dsh-sync.tgz "dsh-sync-${RELEASE_TAG#v}.tgz" SHA256SUMS; do
+            [[ -f "$file" && ! -L "$file" ]]
+          done
+          expected=$(printf '%s\n' dsh-sync.tgz "dsh-sync-${RELEASE_TAG#v}.tgz" | sort)
+          actual=$(awk '{print $2}' SHA256SUMS | sort)
+          [[ "$actual" == "$expected" ]]
+          sha256sum --check --strict SHA256SUMS
+      - name: Verify remote tag and create a new release (never replace assets)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo '::error::Release already exists; publish a new version instead of replacing assets'
+            exit 1
+          fi
+          # Check immediately before creation; --verify-tag alone checks existence,
+          # not that the remote tag still points at the commit tested above.
+          refs=$(git ls-remote --exit-code "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" \
+            "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")
+          remote_sha=$(printf '%s\n' "$refs" | awk -v tag="refs/tags/$RELEASE_TAG" \
+            '$2 == tag { direct = $1 } $2 == tag "^{}" { peeled = $1 } END { print peeled ? peeled : direct }')
+          if [[ "$remote_sha" != "$RELEASE_SHA" ]]; then
+            echo '::error::Remote tag no longer points at the resolved commit; refusing to publish'
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            "$RUNNER_TEMP/release-artifact/dsh-sync.tgz" \
+            "$RUNNER_TEMP/release-artifact/dsh-sync-${RELEASE_TAG#v}.tgz" \
+            "$RUNNER_TEMP/release-artifact/SHA256SUMS" \
+            --verify-tag --target "$RELEASE_SHA" --title "dsh-sync ${RELEASE_TAG}" --notes-file CHANGELOG.md --latest

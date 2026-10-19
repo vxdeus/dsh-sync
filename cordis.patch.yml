@@ -1,0 +1,7 @@
+# dsh-sync bundle layer.
+#
+# Inserted without configuration so a fresh install stays inert; all settings live in
+# ~/.dsh/dsh-sync.json (local only; may hold the user's own transport credentials).
+- insert:
+    - id: dsh-sync
+      name: dsh-sync

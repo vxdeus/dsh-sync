@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-pack:
+    name: Node 24 / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      # The isolated regression suites use Node built-ins and injected transport/Host doubles.
+      # No DSH plugins, live profile, Git credentials or server are installed/provided here.
+      - name: Run every regression suite and legacy pure-logic checks
+        run: node scripts/test.mjs
+      - name: Build and verify npm-format release package
+        run: node scripts/release.mjs
+      - name: Load packaged files against an isolated synthetic Host
+        run: node scripts/smoke-package.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.os }}
+          path: |
+            dist/dsh-sync.tgz
+            dist/dsh-sync-*.tgz
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
