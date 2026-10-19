@@ -7,7 +7,9 @@ const source = fs.readFileSync(new URL('../lib/client-panel.js', import.meta.url
 const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 
 // Expose closure helpers in this VM only; the shipped Classic module keeps its public surface unchanged.
-function clientHarness(fetch, overrides = {}) {
+function clientHarness(fetch, overrides = {}, sourceInput = source) {
+  // Normalize only the VM instrumentation input, not the shipped source.
+  const source = sourceInput.replace(/\r\n/g, '\n')
   let declaration
   const sandbox = {
     window: { __ModuleLoader__: { load(value) { declaration = value } } },
@@ -29,6 +31,18 @@ function renderedText(node) {
   if (typeof node.type === 'function') return renderedText(node.type({ ...node.props, children: node.children }))
   return (node.children || []).map(renderedText).join(' ')
 }
+
+test('client harness instruments both LF and CRLF source and exposes every expected helper', () => {
+  const lfSource = source.replace(/\r\n/g, '\n')
+  for (const [lineEnding, sourceInput] of [['LF', lfSource], ['CRLF', lfSource.replace(/\n/g, '\r\n')]]) {
+    const helpers = clientHarness(undefined, {}, sourceInput)
+    for (const name of ['normalizeSnapshot', 'makeStore', 'safeResult', 'sanitizeProgress', 'StageProgress', 'Result', 'shortcutLabel', 'canCancel']) {
+      assert.equal(typeof helpers[name], 'function', `${lineEnding}: ${name}`)
+    }
+    assert.equal(helpers.plugin.name, 'dsh-sync-ui')
+    assert.throws(() => clientHarness(undefined, {}, sourceInput.replace("name: 'dsh-sync-ui'", "name: 'missing-anchor'")), assert.AssertionError)
+  }
+})
 
 test('client progress rejects unsafe phase and private fields and clamps stage completion', () => {
   const { normalizeSnapshot, sanitizeProgress, StageProgress } = clientHarness()

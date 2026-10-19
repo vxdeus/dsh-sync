@@ -10,7 +10,9 @@ const offer = (id = 'offer-a', extra = {}) => ({ id, profile: 'desktop', name: '
 const plan = (extra = {}) => ({ planId: 'plan-1', snapshot: 'snapshot-123', checkedAt: '2026-10-16T00:00:00Z', offers: [offer()], warnings: [], ...extra })
 const snapshot = (extra = {}) => ({ config: { ready: true }, status: {}, onlineAvailable: true, pluginUpdateAvailable: true, pluginUpdates: plan(), ...extra })
 
-function harness(fetch, overrides = {}) {
+function harness(fetch, overrides = {}, sourceInput = source) {
+  // Normalize only the VM instrumentation input, not the shipped source.
+  const source = sourceInput.replace(/\r\n/g, '\n')
   let declaration
   const sandbox = { window: { __ModuleLoader__: { load(value) { declaration = value } } }, fetch, AbortController, setTimeout, clearTimeout, URL, ...overrides }
   const instrumented = source.replace("    return {\n      name: 'dsh-sync-ui',", "    window.__test = { normalizeSnapshot, normalizePluginUpdates, pluginTargetsAllowed, makeStore, Result, canCancel };\n    return {\n      name: 'dsh-sync-ui',")
@@ -60,6 +62,18 @@ function mount(fetch) {
     dispose() { owner.effects.forEach(effect => effect.cleanup?.()); for (const dispose of disposers.reverse()) dispose?.() },
   }
 }
+
+test('plugin update harness instruments both LF and CRLF source and exposes every expected helper', () => {
+  const lfSource = source.replace(/\r\n/g, '\n')
+  for (const [lineEnding, sourceInput] of [['LF', lfSource], ['CRLF', lfSource.replace(/\n/g, '\r\n')]]) {
+    const helpers = harness(undefined, {}, sourceInput)
+    for (const name of ['normalizeSnapshot', 'normalizePluginUpdates', 'pluginTargetsAllowed', 'makeStore', 'Result', 'canCancel']) {
+      assert.equal(typeof helpers[name], 'function', `${lineEnding}: ${name}`)
+    }
+    assert.equal(helpers.plugin.name, 'dsh-sync-ui')
+    assert.throws(() => harness(undefined, {}, sourceInput.replace("name: 'dsh-sync-ui'", "name: 'missing-anchor'")), assert.AssertionError)
+  }
+})
 
 test('plugin reminder DTO keeps only allowlisted redacted fields and does not copy raw snapshot metadata', () => {
   const { normalizeSnapshot } = harness()
